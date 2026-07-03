@@ -12,6 +12,8 @@ data/
 downloads/
 artifacts/*
 !artifacts/.gitkeep
+logs/*
+!logs/.gitkeep
 external/amsterg_ahead/data/
 
 *.hdf5

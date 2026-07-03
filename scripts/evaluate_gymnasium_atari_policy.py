@@ -209,6 +209,14 @@ def choose_action(
     return action, float(probs[action].item())
 
 
+def parse_start_actions(raw_actions: str) -> list[int]:
+    """Parse a comma-separated list of environment actions to apply after reset."""
+
+    if not raw_actions.strip():
+        return []
+    return [int(action.strip()) for action in raw_actions.split(",") if action.strip()]
+
+
 def run_episode(
     env: gym.Env,
     args: argparse.Namespace,
@@ -221,13 +229,22 @@ def run_episode(
     """Run one evaluation episode and return reward, length, and action statistics."""
 
     observation, info = env.reset(seed=episode_seed)
-    frame_stack: deque[np.ndarray] = deque([observation] * args.stack, maxlen=args.stack)
     total_reward = 0.0
     action_counts: dict[str, int] = {}
     action_prob_sum = 0.0
     steps = 0
     terminated = False
     truncated = False
+    start_actions = parse_start_actions(args.start_actions)
+    for start_action in start_actions:
+        observation, reward, terminated, truncated, info = env.step(start_action)
+        total_reward += float(reward)
+        if terminated or truncated:
+            observation, info = env.reset(seed=episode_seed)
+            terminated = False
+            truncated = False
+            break
+    frame_stack: deque[np.ndarray] = deque([observation] * args.stack, maxlen=args.stack)
     active_states: list[torch.Tensor] = []
     active_actions: list[int] = []
     active_rtgs: list[float] = []
@@ -334,6 +351,7 @@ def main() -> None:
     parser.add_argument("--reduced-action-space", action="store_true")
     parser.add_argument("--policy", choices=["sample", "argmax"], default="sample")
     parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--start-actions", default="", help="Comma-separated env actions to apply after reset.")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--log-interval", type=int, default=0, help="Print rollout progress every N env steps.")
@@ -411,6 +429,7 @@ def main() -> None:
         "gaze_checkpoint": str(args.gaze_checkpoint) if args.gaze_checkpoint is not None else None,
         "policy": args.policy,
         "temperature": args.temperature,
+        "start_actions": parse_start_actions(args.start_actions),
         "target_return": args.target_return,
         "context_length": args.context_length,
         "frameskip": args.frameskip,

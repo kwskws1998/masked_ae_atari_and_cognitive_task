@@ -17,8 +17,11 @@ MODE="${MODE:-active_dt}"
 HF_REPO="${HF_REPO:-skboy/atari-head-v4}"
 OUT_ROOT="${OUT_ROOT:-artifacts/active_gaze_dt/${GAME}_${PROFILE}}"
 HDF5_PATH="${HDF5_PATH:-external/amsterg_ahead/data/processed/${GAME}.hdf5}"
-mkdir -p artifacts "${OUT_ROOT}" artifacts/gymnasium_eval
+mkdir -p artifacts "${OUT_ROOT}" artifacts/gymnasium_eval logs
 EVAL_POLICY="${EVAL_POLICY:-argmax}"
+EVAL_START_ACTIONS="${EVAL_START_ACTIONS:-1}"
+SKIP_PREPARE="${SKIP_PREPARE:-0}"
+PRINT_NVIDIA_SMI="${PRINT_NVIDIA_SMI:-1}"
 
 if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
   source "${VENV_DIR}/bin/activate"
@@ -149,21 +152,27 @@ case "${PROFILE}" in
 esac
 AMP="${AMP:-0}"
 
+echo "=== setup data archive game=${GAME} ==="
 bash scripts/setup_atari_head_v4_data.sh "${GAME}"
 
-PREPARE_ARGS=(
-  --game "${GAME}"
-  --max-trials "${MAX_TRIALS}"
-  --max-frames "${MAX_FRAMES}"
-  --overwrite
-)
-if [ "${COMBINED}" = "1" ]; then
-  PREPARE_ARGS+=(--combined)
+if [ "${SKIP_PREPARE}" = "1" ]; then
+  echo "=== skip HDF5 prepare: ${HDF5_PATH} ==="
+else
+  echo "=== prepare HDF5 game=${GAME} max_trials=${MAX_TRIALS} max_frames=${MAX_FRAMES} ==="
+  PREPARE_ARGS=(
+    --game "${GAME}"
+    --max-trials "${MAX_TRIALS}"
+    --max-frames "${MAX_FRAMES}"
+    --overwrite
+  )
+  if [ "${COMBINED}" = "1" ]; then
+    PREPARE_ARGS+=(--combined)
+  fi
+  if [ "${NO_COMPRESSION}" = "1" ]; then
+    PREPARE_ARGS+=(--no-compression)
+  fi
+  python scripts/prepare_amsterg_hdf5.py "${PREPARE_ARGS[@]}"
 fi
-if [ "${NO_COMPRESSION}" = "1" ]; then
-  PREPARE_ARGS+=(--no-compression)
-fi
-python scripts/prepare_amsterg_hdf5.py "${PREPARE_ARGS[@]}"
 
 TRAIN_ARGS=(
   --mode "${MODE}"
@@ -198,8 +207,14 @@ fi
 if [ "${AMP}" = "1" ]; then
   TRAIN_ARGS+=(--amp)
 fi
+echo "=== train mode=${MODE} device=${DEVICE} amp=${AMP} batch_size=${BATCH_SIZE} context_length=${CONTEXT_LENGTH} ==="
+python -c "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('cuda_device', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
+if [ "${PRINT_NVIDIA_SMI}" = "1" ] && command -v nvidia-smi >/dev/null 2>&1; then
+  nvidia-smi
+fi
 python scripts/train_active_gaze_dt.py "${TRAIN_ARGS[@]}"
 
+echo "=== evaluate policy=${EVAL_POLICY} episodes=${EVAL_EPISODES} max_steps=${EVAL_MAX_STEPS} ==="
 python scripts/evaluate_gymnasium_atari_policy.py \
   --game "${GAME}" \
   --model-type active-dt \
@@ -209,6 +224,7 @@ python scripts/evaluate_gymnasium_atari_policy.py \
   --frameskip 1 \
   --policy "${EVAL_POLICY}" \
   --temperature 1.0 \
+  --start-actions "${EVAL_START_ACTIONS}" \
   --context-length "${CONTEXT_LENGTH}" \
   --target-return 20 \
   --device "${DEVICE}" \
