@@ -158,6 +158,20 @@ def test_active_gaze_decision_transformer_loss_composition() -> None:
     assert torch.allclose(output.loss, expected, atol=1e-6)
 
 
+def test_active_visual_encoder_autocast_reconstruction_dtype() -> None:
+    cfg = _small_config()
+    encoder = ActiveGazeMAEVisualEncoder(cfg)
+    frames = torch.rand(2, 4, 84, 84)
+    gaze = torch.rand(2, 1, 84, 84)
+    gaze = gaze / gaze.flatten(1).sum(dim=1).view(2, 1, 1, 1)
+    with torch.amp.autocast(device_type="cpu", dtype=torch.bfloat16):
+        output = encoder(frames, gaze)
+
+    assert output.reconstruction_loss is not None
+    assert output.reconstructed_patches is not None
+    assert output.reconstructed_patches.dtype == torch.bfloat16
+
+
 def test_hdf5_trajectory_dataset_shapes_and_rtg() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         hdf5_path = Path(tmp) / "synthetic.hdf5"
@@ -191,4 +205,5 @@ if __name__ == "__main__":
     test_random_visual_encoder_masks_to_visible_quarter_without_gaze_loss()
     test_active_gaze_decision_transformer_forward()
     test_active_gaze_decision_transformer_loss_composition()
+    test_active_visual_encoder_autocast_reconstruction_dtype()
     test_hdf5_trajectory_dataset_shapes_and_rtg()

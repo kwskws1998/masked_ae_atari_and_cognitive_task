@@ -301,10 +301,10 @@ class ActiveGazeMAEVisualEncoder(nn.Module):
         reconstruction_loss = None
         if reconstruct:
             decoder_visible = self.decoder_embed(encoded_visible)
-            decoder_tokens = self.mask_token.expand(batch_size, self.num_patches, -1).clone()
+            decoder_tokens = self.mask_token.to(dtype=decoder_visible.dtype).expand(batch_size, self.num_patches, -1).clone()
             scatter_index = visible_indices.unsqueeze(-1).expand(-1, -1, self.cfg.decoder_dim)
             decoder_tokens.scatter_(1, scatter_index, decoder_visible)
-            decoder_tokens = decoder_tokens + self.decoder_pos_embed
+            decoder_tokens = decoder_tokens + self.decoder_pos_embed.to(dtype=decoder_tokens.dtype)
             decoded = self.decoder(decoder_tokens)
             reconstructed_patches = self.decoder_head(decoded)
             if masked_positions.any():
