@@ -12,6 +12,8 @@ VENV_DIR="${VENV_DIR:-.venv}"
 CREATE_VENV="${CREATE_VENV:-1}"
 INSTALL_TORCH="${INSTALL_TORCH:-1}"
 PYTORCH_INDEX_URL="${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu121}"
+DOWNLOAD_DATA="${DOWNLOAD_DATA:-1}"
+DATA_GAMES="${DATA_GAMES:-breakout}"
 
 if [ "${CREATE_VENV}" != "0" ]; then
   if [ ! -d "${VENV_DIR}" ]; then
@@ -36,3 +38,9 @@ fi
 
 python -c "import torch, gymnasium, ale_py, h5py, PIL; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('cuda_device', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
 
+if [ "${DOWNLOAD_DATA}" != "0" ]; then
+  read -r -a GAME_ARGS <<< "${DATA_GAMES}"
+  bash scripts/setup_atari_head_v4_data.sh "${GAME_ARGS[@]}"
+else
+  echo "Skipping Atari-HEAD data download because DOWNLOAD_DATA=0"
+fi

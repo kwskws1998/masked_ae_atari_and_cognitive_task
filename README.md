@@ -180,6 +180,18 @@ Set up the Python environment first:
 bash scripts/setup_environment.sh
 ```
 
+By default this also downloads the mirrored Breakout archive from `skboy/atari-head-v4` into `data/atari_head_full/v4`. To download multiple games during setup:
+
+```bash
+DATA_GAMES="breakout asterix seaquest" bash scripts/setup_environment.sh
+```
+
+To install dependencies without downloading data:
+
+```bash
+DOWNLOAD_DATA=0 bash scripts/setup_environment.sh
+```
+
 On a CUDA machine such as an RTX 3090, the default setup installs PyTorch from the CUDA 12.1 wheel index. If PyTorch is already installed, skip that part:
 
 ```bash
