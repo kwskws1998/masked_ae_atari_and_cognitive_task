@@ -14,6 +14,7 @@ INSTALL_TORCH="${INSTALL_TORCH:-1}"
 PYTORCH_INDEX_URL="${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu121}"
 DOWNLOAD_DATA="${DOWNLOAD_DATA:-1}"
 DATA_GAMES="${DATA_GAMES:-breakout}"
+INSTALL_ATARI_ROMS="${INSTALL_ATARI_ROMS:-1}"
 
 if [ "${CREATE_VENV}" != "0" ]; then
   if [ ! -d "${VENV_DIR}" ]; then
@@ -30,6 +31,10 @@ if [ "${INSTALL_TORCH}" != "0" ]; then
 fi
 
 python -m pip install -r requirements.txt
+
+if [ "${INSTALL_ATARI_ROMS}" != "0" ]; then
+  AutoROM --accept-license
+fi
 
 if ! command -v hf >/dev/null 2>&1; then
   curl -LsSf https://hf.co/cli/install.sh | bash -s

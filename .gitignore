@@ -7,6 +7,8 @@ venv/
 env/
 
 data/
+!external/amsterg_ahead/src/data/
+!external/amsterg_ahead/src/data/*.py
 downloads/
 artifacts/
 external/amsterg_ahead/data/
@@ -27,4 +29,3 @@ external/amsterg_ahead/data/
 *.gz
 
 *.pdf
-

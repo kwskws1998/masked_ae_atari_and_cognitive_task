@@ -51,6 +51,13 @@ class TrialSpec:
 
 
 def configure_ahead(ahead_root: Path) -> None:
+    required = ahead_root / "src" / "data" / "data_utils.py"
+    if not required.exists():
+        raise FileNotFoundError(
+            "missing amsterg/ahead data utilities at "
+            f"{required}. Fetch the complete repository or restore "
+            "external/amsterg_ahead/src/data before preparing HDF5 files."
+        )
     os.environ.setdefault("MPLCONFIGDIR", str(ahead_root / ".cache" / "matplotlib"))
     os.environ.setdefault("XDG_CACHE_HOME", str(ahead_root / ".cache"))
     sys.path.insert(0, str(ahead_root))

@@ -10,7 +10,7 @@ seaborn
 opencv-python
 gymnasium[atari,accept-rom-license]
 ale-py
+autorom[accept-rom-license]
 python-dotenv
 PyYAML
 tensorboard
-

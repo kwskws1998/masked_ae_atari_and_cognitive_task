@@ -7,6 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
+AUTO_ACTIVATE_VENV="${AUTO_ACTIVATE_VENV:-1}"
+VENV_DIR="${VENV_DIR:-.venv}"
 SUITE_PROFILE="${SUITE_PROFILE:-pilot}"
 GAME="${GAME:-breakout}"
 DEVICE="${DEVICE:-cuda}"
@@ -16,6 +18,10 @@ SUITE_ROOT="${SUITE_ROOT:-artifacts/active_gaze_dt/${GAME}_${SUITE_PROFILE}_abla
 SEEDS="${SEEDS:-42}"
 SETUP_ENV="${SETUP_ENV:-0}"
 SKIP_PREPARE="${SKIP_PREPARE:-0}"
+
+if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
+  source "${VENV_DIR}/bin/activate"
+fi
 
 case "${SUITE_PROFILE}" in
   pilot)

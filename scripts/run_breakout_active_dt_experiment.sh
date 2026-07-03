@@ -7,6 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
+AUTO_ACTIVATE_VENV="${AUTO_ACTIVATE_VENV:-1}"
+VENV_DIR="${VENV_DIR:-.venv}"
 PROFILE="${PROFILE:-smoke}"
 GAME="${GAME:-breakout}"
 DEVICE="${DEVICE:-cuda}"
@@ -14,6 +16,10 @@ MODE="${MODE:-active_dt}"
 HF_REPO="${HF_REPO:-skboy/atari-head-v4}"
 OUT_ROOT="${OUT_ROOT:-artifacts/active_gaze_dt/${GAME}_${PROFILE}}"
 HDF5_PATH="${HDF5_PATH:-external/amsterg_ahead/data/processed/${GAME}.hdf5}"
+
+if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
+  source "${VENV_DIR}/bin/activate"
+fi
 
 case "${PROFILE}" in
   smoke)
