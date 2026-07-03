@@ -202,10 +202,16 @@ def run_epoch(
             should_log = log_interval > 0 and (batch_idx == 1 or batch_idx % log_interval == 0 or is_last_batch)
             if should_log:
                 running_loss = totals["loss"] / max(sample_count, 1)
+                running_action_loss = totals["action_loss"] / max(sample_count, 1)
+                running_reconstruction_loss = totals["reconstruction_loss"] / max(sample_count, 1)
+                running_gaze_loss = totals["gaze_loss"] / max(sample_count, 1)
                 running_acc = correct / max(total, 1)
                 print(
                     f"{phase} epoch={epoch} batch={batch_idx}/{len(loader)} "
-                    f"samples={sample_count} loss={running_loss:.6f} acc={running_acc:.4f}",
+                    f"samples={sample_count} loss={running_loss:.6f} "
+                    f"action_loss={running_action_loss:.6f} "
+                    f"rec_loss={running_reconstruction_loss:.6f} "
+                    f"gaze_loss={running_gaze_loss:.6f} acc={running_acc:.4f}",
                     flush=True,
                 )
 
@@ -362,8 +368,13 @@ def main() -> None:
         history.append(metrics)
         print(
             f"epoch={epoch} train_loss={train_metrics['loss']:.6f} "
+            f"train_action_loss={train_metrics['action_loss']:.6f} "
+            f"train_rec_loss={train_metrics['reconstruction_loss']:.6f} "
+            f"train_gaze_loss={train_metrics['gaze_loss']:.6f} "
             f"train_acc={train_metrics['acc']:.4f} val_loss={val_metrics['loss']:.6f} "
-            f"val_acc={val_metrics['acc']:.4f}"
+            f"val_action_loss={val_metrics['action_loss']:.6f} "
+            f"val_rec_loss={val_metrics['reconstruction_loss']:.6f} "
+            f"val_gaze_loss={val_metrics['gaze_loss']:.6f} val_acc={val_metrics['acc']:.4f}"
         )
 
     checkpoint = args.output_dir / f"{args.mode}.pt"

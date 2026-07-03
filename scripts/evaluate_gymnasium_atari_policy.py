@@ -337,6 +337,12 @@ def main() -> None:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--log-interval", type=int, default=0, help="Print rollout progress every N env steps.")
+    parser.add_argument(
+        "--episode-log-interval",
+        type=int,
+        default=1,
+        help="Print completed episode summaries every N episodes. Use 0 to disable per-episode summaries.",
+    )
     args = parser.parse_args()
 
     args.ahead_root = args.ahead_root.resolve()
@@ -377,10 +383,24 @@ def main() -> None:
             episode_seed,
         )
         episode_results.append(result)
-        print(
-            f"episode={episode} seed={episode_seed} reward={result['reward']:.3f} "
-            f"steps={result['steps']} terminated={result['terminated']} truncated={result['truncated']}"
+        completed = episode + 1
+        should_log_episode = (
+            args.episode_log_interval > 0
+            and (
+                completed == 1
+                or completed % args.episode_log_interval == 0
+                or completed == args.episodes
+            )
         )
+        if should_log_episode:
+            running_summary = summarize(episode_results)
+            print(
+                f"episode={completed}/{args.episodes} seed={episode_seed} "
+                f"reward={result['reward']:.3f} steps={result['steps']} "
+                f"terminated={result['terminated']} truncated={result['truncated']} "
+                f"running_mean_reward={running_summary['mean_reward']:.3f}",
+                flush=True,
+            )
     env.close()
 
     output = {

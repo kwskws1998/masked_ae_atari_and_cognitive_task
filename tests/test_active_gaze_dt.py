@@ -114,6 +114,50 @@ def test_active_gaze_decision_transformer_forward() -> None:
     assert output.mask_probs.shape == (2, 4, 144)
 
 
+def test_active_gaze_decision_transformer_loss_composition() -> None:
+    cfg = ActiveGazeDecisionTransformerConfig(
+        embed_dim=32,
+        encoder_layers=1,
+        encoder_heads=4,
+        encoder_ff_dim=64,
+        decoder_dim=32,
+        decoder_layers=1,
+        decoder_heads=4,
+        decoder_ff_dim=64,
+        dt_layers=1,
+        dt_heads=4,
+        context_length=3,
+        dropout=0.0,
+        reconstruction_loss_weight=0.7,
+        gaze_loss_weight=0.3,
+    )
+    model = ActiveGazeDecisionTransformer(cfg)
+    frames = torch.rand(2, 3, 4, 84, 84)
+    gaze = torch.rand(2, 3, 1, 84, 84)
+    gaze = gaze / gaze.flatten(2).sum(dim=2).view(2, 3, 1, 1, 1)
+    actions = torch.randint(0, cfg.action_dim, (2, 3))
+    rtg = torch.rand(2, 3)
+    timesteps = torch.arange(3).view(1, 3).repeat(2, 1)
+    output = model(
+        frames=frames,
+        actions=actions,
+        returns_to_go=rtg,
+        timesteps=timesteps,
+        gaze_heatmaps=gaze,
+    )
+
+    assert output.loss is not None
+    assert output.action_loss is not None
+    assert output.reconstruction_loss is not None
+    assert output.gaze_loss is not None
+    expected = (
+        output.action_loss
+        + cfg.reconstruction_loss_weight * output.reconstruction_loss
+        + cfg.gaze_loss_weight * output.gaze_loss
+    )
+    assert torch.allclose(output.loss, expected, atol=1e-6)
+
+
 def test_hdf5_trajectory_dataset_shapes_and_rtg() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         hdf5_path = Path(tmp) / "synthetic.hdf5"
@@ -146,4 +190,5 @@ if __name__ == "__main__":
     test_active_visual_encoder_masks_to_visible_quarter()
     test_random_visual_encoder_masks_to_visible_quarter_without_gaze_loss()
     test_active_gaze_decision_transformer_forward()
+    test_active_gaze_decision_transformer_loss_composition()
     test_hdf5_trajectory_dataset_shapes_and_rtg()

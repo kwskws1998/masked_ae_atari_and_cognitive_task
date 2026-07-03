@@ -20,6 +20,7 @@ SEEDS="${SEEDS:-42}"
 SETUP_ENV="${SETUP_ENV:-0}"
 SKIP_PREPARE="${SKIP_PREPARE:-0}"
 mkdir -p artifacts "${SUITE_ROOT}" artifacts/gymnasium_eval
+EVAL_POLICY="${EVAL_POLICY:-argmax}"
 
 if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
   source "${VENV_DIR}/bin/activate"
@@ -35,7 +36,8 @@ case "${SUITE_PROFILE}" in
     EVAL_EPISODES="${EVAL_EPISODES:-5}"
     EVAL_MAX_STEPS="${EVAL_MAX_STEPS:-5000}"
     TRAIN_LOG_INTERVAL="${TRAIN_LOG_INTERVAL:-50}"
-    EVAL_LOG_INTERVAL="${EVAL_LOG_INTERVAL:-1000}"
+    EVAL_STEP_LOG_INTERVAL="${EVAL_STEP_LOG_INTERVAL:-${EVAL_LOG_INTERVAL:-0}}"
+    EVAL_EPISODE_LOG_INTERVAL="${EVAL_EPISODE_LOG_INTERVAL:-100}"
     NO_COMPRESSION="${NO_COMPRESSION:-1}"
     ;;
   full)
@@ -47,7 +49,8 @@ case "${SUITE_PROFILE}" in
     EVAL_EPISODES="${EVAL_EPISODES:-30}"
     EVAL_MAX_STEPS="${EVAL_MAX_STEPS:-108000}"
     TRAIN_LOG_INTERVAL="${TRAIN_LOG_INTERVAL:-100}"
-    EVAL_LOG_INTERVAL="${EVAL_LOG_INTERVAL:-10000}"
+    EVAL_STEP_LOG_INTERVAL="${EVAL_STEP_LOG_INTERVAL:-${EVAL_LOG_INTERVAL:-0}}"
+    EVAL_EPISODE_LOG_INTERVAL="${EVAL_EPISODE_LOG_INTERVAL:-100}"
     NO_COMPRESSION="${NO_COMPRESSION:-0}"
     ;;
   *)
@@ -161,12 +164,13 @@ run_condition() {
     --episodes "${EVAL_EPISODES}" \
     --max-steps "${EVAL_MAX_STEPS}" \
     --frameskip 1 \
-    --policy sample \
+    --policy "${EVAL_POLICY}" \
     --temperature 1.0 \
     --context-length "${CONTEXT_LENGTH}" \
     --target-return 20 \
     --device "${DEVICE}" \
-    --log-interval "${EVAL_LOG_INTERVAL}" \
+    --log-interval "${EVAL_STEP_LOG_INTERVAL}" \
+    --episode-log-interval "${EVAL_EPISODE_LOG_INTERVAL}" \
     --output-json "${eval_json}"
 }
 
