@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
+export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 AUTO_ACTIVATE_VENV="${AUTO_ACTIVATE_VENV:-1}"
 VENV_DIR="${VENV_DIR:-.venv}"
 SUITE_PROFILE="${SUITE_PROFILE:-pilot}"
@@ -18,6 +19,7 @@ SUITE_ROOT="${SUITE_ROOT:-artifacts/active_gaze_dt/${GAME}_${SUITE_PROFILE}_abla
 SEEDS="${SEEDS:-42}"
 SETUP_ENV="${SETUP_ENV:-0}"
 SKIP_PREPARE="${SKIP_PREPARE:-0}"
+mkdir -p artifacts "${SUITE_ROOT}" artifacts/gymnasium_eval
 
 if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
   source "${VENV_DIR}/bin/activate"
@@ -32,6 +34,8 @@ case "${SUITE_PROFILE}" in
     BATCH_SIZE="${BATCH_SIZE:-64}"
     EVAL_EPISODES="${EVAL_EPISODES:-5}"
     EVAL_MAX_STEPS="${EVAL_MAX_STEPS:-5000}"
+    TRAIN_LOG_INTERVAL="${TRAIN_LOG_INTERVAL:-50}"
+    EVAL_LOG_INTERVAL="${EVAL_LOG_INTERVAL:-1000}"
     NO_COMPRESSION="${NO_COMPRESSION:-1}"
     ;;
   full)
@@ -42,6 +46,8 @@ case "${SUITE_PROFILE}" in
     BATCH_SIZE="${BATCH_SIZE:-64}"
     EVAL_EPISODES="${EVAL_EPISODES:-30}"
     EVAL_MAX_STEPS="${EVAL_MAX_STEPS:-108000}"
+    TRAIN_LOG_INTERVAL="${TRAIN_LOG_INTERVAL:-100}"
+    EVAL_LOG_INTERVAL="${EVAL_LOG_INTERVAL:-10000}"
     NO_COMPRESSION="${NO_COMPRESSION:-0}"
     ;;
   *)
@@ -129,6 +135,7 @@ run_condition() {
     --seed "${seed}"
     --device "${DEVICE}"
     --require-rewards
+    --log-interval "${TRAIN_LOG_INTERVAL}"
   )
   if [ -n "${MAX_SAMPLES}" ]; then
     train_args+=(--max-samples "${MAX_SAMPLES}")
@@ -159,6 +166,7 @@ run_condition() {
     --context-length "${CONTEXT_LENGTH}" \
     --target-return 20 \
     --device "${DEVICE}" \
+    --log-interval "${EVAL_LOG_INTERVAL}" \
     --output-json "${eval_json}"
 }
 

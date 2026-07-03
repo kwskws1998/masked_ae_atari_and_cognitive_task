@@ -10,7 +10,8 @@ data/
 !external/amsterg_ahead/src/data/
 !external/amsterg_ahead/src/data/*.py
 downloads/
-artifacts/
+artifacts/*
+!artifacts/.gitkeep
 external/amsterg_ahead/data/
 
 *.hdf5

@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
+export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 AUTO_ACTIVATE_VENV="${AUTO_ACTIVATE_VENV:-1}"
 VENV_DIR="${VENV_DIR:-.venv}"
 PROFILE="${PROFILE:-smoke}"
@@ -16,6 +17,7 @@ MODE="${MODE:-active_dt}"
 HF_REPO="${HF_REPO:-skboy/atari-head-v4}"
 OUT_ROOT="${OUT_ROOT:-artifacts/active_gaze_dt/${GAME}_${PROFILE}}"
 HDF5_PATH="${HDF5_PATH:-external/amsterg_ahead/data/processed/${GAME}.hdf5}"
+mkdir -p artifacts "${OUT_ROOT}" artifacts/gymnasium_eval
 
 if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
   source "${VENV_DIR}/bin/activate"
@@ -45,6 +47,8 @@ case "${PROFILE}" in
     MAX_TIMESTEP="${MAX_TIMESTEP:-4096}"
     EVAL_EPISODES="${EVAL_EPISODES:-1}"
     EVAL_MAX_STEPS="${EVAL_MAX_STEPS:-64}"
+    TRAIN_LOG_INTERVAL="${TRAIN_LOG_INTERVAL:-1}"
+    EVAL_LOG_INTERVAL="${EVAL_LOG_INTERVAL:-16}"
     NO_COMPRESSION="${NO_COMPRESSION:-1}"
     COMBINED="${COMBINED:-0}"
     ;;
@@ -71,6 +75,8 @@ case "${PROFILE}" in
     MAX_TIMESTEP="${MAX_TIMESTEP:-30000}"
     EVAL_EPISODES="${EVAL_EPISODES:-5}"
     EVAL_MAX_STEPS="${EVAL_MAX_STEPS:-5000}"
+    TRAIN_LOG_INTERVAL="${TRAIN_LOG_INTERVAL:-50}"
+    EVAL_LOG_INTERVAL="${EVAL_LOG_INTERVAL:-1000}"
     NO_COMPRESSION="${NO_COMPRESSION:-1}"
     COMBINED="${COMBINED:-0}"
     ;;
@@ -97,6 +103,8 @@ case "${PROFILE}" in
     MAX_TIMESTEP="${MAX_TIMESTEP:-30000}"
     EVAL_EPISODES="${EVAL_EPISODES:-30}"
     EVAL_MAX_STEPS="${EVAL_MAX_STEPS:-108000}"
+    TRAIN_LOG_INTERVAL="${TRAIN_LOG_INTERVAL:-100}"
+    EVAL_LOG_INTERVAL="${EVAL_LOG_INTERVAL:-10000}"
     NO_COMPRESSION="${NO_COMPRESSION:-0}"
     COMBINED="${COMBINED:-0}"
     ;;
@@ -124,6 +132,8 @@ case "${PROFILE}" in
     MAX_TIMESTEP="${MAX_TIMESTEP:-30000}"
     EVAL_EPISODES="${EVAL_EPISODES:-30}"
     EVAL_MAX_STEPS="${EVAL_MAX_STEPS:-108000}"
+    TRAIN_LOG_INTERVAL="${TRAIN_LOG_INTERVAL:-100}"
+    EVAL_LOG_INTERVAL="${EVAL_LOG_INTERVAL:-10000}"
     NO_COMPRESSION="${NO_COMPRESSION:-0}"
     COMBINED="${COMBINED:-0}"
     ;;
@@ -172,6 +182,7 @@ TRAIN_ARGS=(
   --max-timestep "${MAX_TIMESTEP}"
   --device "${DEVICE}"
   --require-rewards
+  --log-interval "${TRAIN_LOG_INTERVAL}"
 )
 if [ -n "${MAX_SAMPLES}" ]; then
   TRAIN_ARGS+=(--max-samples "${MAX_SAMPLES}")
@@ -196,4 +207,5 @@ python scripts/evaluate_gymnasium_atari_policy.py \
   --context-length "${CONTEXT_LENGTH}" \
   --target-return 20 \
   --device "${DEVICE}" \
+  --log-interval "${EVAL_LOG_INTERVAL}" \
   --output-json "artifacts/gymnasium_eval/${GAME}_${PROFILE}_${MODE}.json"

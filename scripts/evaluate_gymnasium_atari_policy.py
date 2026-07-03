@@ -202,7 +202,8 @@ def choose_action(
     if policy == "argmax":
         action = int(torch.argmax(probs).item())
     elif policy == "sample":
-        action = int(torch.multinomial(probs, num_samples=1, generator=generator).item())
+        sample_probs = probs.detach().cpu()
+        action = int(torch.multinomial(sample_probs, num_samples=1, generator=generator).item())
     else:
         raise ValueError(f"unsupported policy: {policy}")
     return action, float(probs[action].item())
@@ -283,6 +284,12 @@ def run_episode(
         action_prob_sum += action_prob
         total_reward += float(reward)
         steps += 1
+        if args.log_interval > 0 and steps % args.log_interval == 0:
+            print(
+                f"episode_seed={episode_seed} step={steps} reward={total_reward:.3f} "
+                f"last_action={action} action_prob={action_prob:.4f}",
+                flush=True,
+            )
         if terminated or truncated:
             break
     return {
@@ -329,6 +336,7 @@ def main() -> None:
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
+    parser.add_argument("--log-interval", type=int, default=0, help="Print rollout progress every N env steps.")
     args = parser.parse_args()
 
     args.ahead_root = args.ahead_root.resolve()

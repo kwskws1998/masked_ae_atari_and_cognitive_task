@@ -140,6 +140,8 @@ def batch_accuracy(mode: str, output: Any, batch: dict[str, torch.Tensor]) -> tu
 
 
 def run_epoch(
+    phase: str,
+    epoch: int,
     mode: str,
     model: nn.Module,
     loader: DataLoader[dict[str, torch.Tensor]],
@@ -148,6 +150,7 @@ def run_epoch(
     scaler: torch.amp.GradScaler | None = None,
     use_amp: bool = False,
     compute_auxiliary: bool = True,
+    log_interval: int = 0,
 ) -> dict[str, float]:
     """Run one train or validation epoch and return averaged metrics."""
 
@@ -163,7 +166,7 @@ def run_epoch(
     total = 0
     sample_count = 0
     with torch.set_grad_enabled(is_train):
-        for batch in loader:
+        for batch_idx, batch in enumerate(loader, start=1):
             batch = move_batch(batch, device)
             with torch.amp.autocast(device_type="cuda", enabled=use_amp and device.type == "cuda"):
                 output = forward_mode(mode, model, batch, compute_auxiliary=compute_auxiliary)
@@ -195,6 +198,16 @@ def run_epoch(
             correct += batch_correct
             total += batch_total
             sample_count += batch_items
+            is_last_batch = batch_idx == len(loader)
+            should_log = log_interval > 0 and (batch_idx == 1 or batch_idx % log_interval == 0 or is_last_batch)
+            if should_log:
+                running_loss = totals["loss"] / max(sample_count, 1)
+                running_acc = correct / max(total, 1)
+                print(
+                    f"{phase} epoch={epoch} batch={batch_idx}/{len(loader)} "
+                    f"samples={sample_count} loss={running_loss:.6f} acc={running_acc:.4f}",
+                    flush=True,
+                )
 
     denom = max(sample_count, 1)
     return {
@@ -262,6 +275,7 @@ def main() -> None:
     parser.add_argument("--lambda-gaze", type=float, default=0.1)
     parser.add_argument("--disable-reconstruction", action="store_true")
     parser.add_argument("--max-timestep", type=int, default=4096)
+    parser.add_argument("--log-interval", type=int, default=50, help="Print batch progress every N batches.")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -317,6 +331,8 @@ def main() -> None:
     history: list[dict[str, Any]] = []
     for epoch in range(args.epochs):
         train_metrics = run_epoch(
+            "train",
+            epoch,
             args.mode,
             model,
             train_loader,
@@ -325,14 +341,18 @@ def main() -> None:
             scaler=scaler,
             use_amp=args.amp,
             compute_auxiliary=not args.disable_reconstruction,
+            log_interval=args.log_interval,
         )
         val_metrics = run_epoch(
+            "val",
+            epoch,
             args.mode,
             model,
             val_loader,
             device,
             use_amp=args.amp,
             compute_auxiliary=not args.disable_reconstruction,
+            log_interval=args.log_interval,
         )
         metrics = {
             "epoch": epoch,
