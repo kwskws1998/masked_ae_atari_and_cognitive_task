@@ -1,0 +1,16 @@
+numpy
+pandas
+h5py
+pillow
+tqdm
+scipy
+scikit-learn
+matplotlib
+seaborn
+opencv-python
+gymnasium[atari,accept-rom-license]
+ale-py
+python-dotenv
+PyYAML
+tensorboard
+

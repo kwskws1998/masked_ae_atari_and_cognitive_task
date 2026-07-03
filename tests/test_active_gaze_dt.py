@@ -62,6 +62,35 @@ def test_active_visual_encoder_masks_to_visible_quarter() -> None:
     assert torch.allclose(restored, frames, atol=1e-6)
 
 
+def test_random_visual_encoder_masks_to_visible_quarter_without_gaze_loss() -> None:
+    cfg = ActiveGazeDecisionTransformerConfig(
+        embed_dim=32,
+        encoder_layers=1,
+        encoder_heads=4,
+        encoder_ff_dim=64,
+        decoder_dim=32,
+        decoder_layers=1,
+        decoder_heads=4,
+        decoder_ff_dim=64,
+        dt_layers=1,
+        dt_heads=4,
+        context_length=4,
+        dropout=0.0,
+        mask_strategy="random",
+    )
+    encoder = ActiveGazeMAEVisualEncoder(cfg)
+    frames = torch.rand(2, 4, 84, 84)
+    gaze = torch.rand(2, 1, 84, 84)
+    output = encoder(frames, gaze, reconstruct=False)
+
+    assert output.encoded_visible_tokens.shape == (2, 36, cfg.embed_dim)
+    assert output.visible_indices.shape == (2, 36)
+    assert output.mask_probs.shape == (2, 144)
+    assert output.reconstruction_loss is None
+    assert output.gaze_patch_target is not None
+    assert output.gaze_loss is None
+
+
 def test_active_gaze_decision_transformer_forward() -> None:
     cfg = _small_config(context_length=4)
     model = ActiveGazeDecisionTransformer(cfg)
@@ -115,5 +144,6 @@ def test_hdf5_trajectory_dataset_shapes_and_rtg() -> None:
 
 if __name__ == "__main__":
     test_active_visual_encoder_masks_to_visible_quarter()
+    test_random_visual_encoder_masks_to_visible_quarter_without_gaze_loss()
     test_active_gaze_decision_transformer_forward()
     test_hdf5_trajectory_dataset_shapes_and_rtg()

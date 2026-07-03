@@ -47,6 +47,8 @@ def make_loader(
     indices: list[int],
     batch_size: int,
     shuffle: bool,
+    num_workers: int,
+    pin_memory: bool,
 ) -> DataLoader[dict[str, torch.Tensor]]:
     """Create a single-process loader over a stable subset."""
 
@@ -54,7 +56,9 @@ def make_loader(
         Subset(dataset, indices),
         batch_size=batch_size,
         shuffle=shuffle,
-        num_workers=0,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0,
         drop_last=False,
     )
 
@@ -78,6 +82,7 @@ def make_config(args: argparse.Namespace) -> ActiveGazeDecisionTransformerConfig
         max_timestep=args.max_timestep,
         dropout=args.dropout,
         mask_ratio=args.mask_ratio,
+        mask_strategy=args.mask_strategy,
         reconstruction_loss_weight=args.lambda_rec,
         gaze_loss_weight=args.lambda_gaze,
     )
@@ -86,7 +91,7 @@ def make_config(args: argparse.Namespace) -> ActiveGazeDecisionTransformerConfig
 def move_batch(batch: dict[str, torch.Tensor], device: torch.device) -> dict[str, torch.Tensor]:
     """Move all tensor batch values to the requested device."""
 
-    return {key: value.to(device) for key, value in batch.items()}
+    return {key: value.to(device, non_blocking=True) for key, value in batch.items()}
 
 
 def forward_mode(
@@ -140,6 +145,9 @@ def run_epoch(
     loader: DataLoader[dict[str, torch.Tensor]],
     device: torch.device,
     optimizer: torch.optim.Optimizer | None = None,
+    scaler: torch.amp.GradScaler | None = None,
+    use_amp: bool = False,
+    compute_auxiliary: bool = True,
 ) -> dict[str, float]:
     """Run one train or validation epoch and return averaged metrics."""
 
@@ -157,15 +165,23 @@ def run_epoch(
     with torch.set_grad_enabled(is_train):
         for batch in loader:
             batch = move_batch(batch, device)
-            output = forward_mode(mode, model, batch, compute_auxiliary=True)
+            with torch.amp.autocast(device_type="cuda", enabled=use_amp and device.type == "cuda"):
+                output = forward_mode(mode, model, batch, compute_auxiliary=compute_auxiliary)
             if output.loss is None:
                 raise RuntimeError("model did not return a loss")
             if is_train:
                 assert optimizer is not None
                 optimizer.zero_grad(set_to_none=True)
-                output.loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer.step()
+                if scaler is not None and scaler.is_enabled():
+                    scaler.scale(output.loss).backward()
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    output.loss.backward()
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    optimizer.step()
 
             batch_items = int(batch["actions"].numel())
             totals["loss"] += float(output.loss.detach().cpu()) * batch_items
@@ -218,12 +234,15 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--pin-memory", action="store_true")
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--context-length", type=int, default=8)
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--train-fraction", type=float, default=0.8)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--amp", action="store_true", help="Use CUDA automatic mixed precision.")
     parser.add_argument("--require-rewards", action="store_true")
     parser.add_argument("--embed-dim", type=int, default=128)
     parser.add_argument("--encoder-layers", type=int, default=2)
@@ -238,8 +257,10 @@ def main() -> None:
     parser.add_argument("--dt-ff-mult", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--mask-ratio", type=float, default=0.75)
+    parser.add_argument("--mask-strategy", choices=["learned", "random"], default="learned")
     parser.add_argument("--lambda-rec", type=float, default=1.0)
     parser.add_argument("--lambda-gaze", type=float, default=0.1)
+    parser.add_argument("--disable-reconstruction", action="store_true")
     parser.add_argument("--max-timestep", type=int, default=4096)
     args = parser.parse_args()
 
@@ -259,8 +280,22 @@ def main() -> None:
         require_rewards=args.require_rewards,
     )
     train_indices, val_indices = split_indices(len(dataset), args.train_fraction, args.seed)
-    train_loader = make_loader(dataset, train_indices, args.batch_size, shuffle=True)
-    val_loader = make_loader(dataset, val_indices, args.batch_size, shuffle=False)
+    train_loader = make_loader(
+        dataset,
+        train_indices,
+        args.batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=args.pin_memory,
+    )
+    val_loader = make_loader(
+        dataset,
+        val_indices,
+        args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=args.pin_memory,
+    )
 
     cfg = make_config(args)
     if args.mode == "active_dt":
@@ -269,16 +304,36 @@ def main() -> None:
         model = ActiveGazeBehaviorCloner(cfg)
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    scaler = torch.amp.GradScaler("cuda", enabled=args.amp and device.type == "cuda")
 
     print(f"hdf5={args.hdf5}")
     print(f"groups={dataset.groups}")
     print(f"samples train={len(train_indices)} val={len(val_indices)}")
-    print(f"mode={args.mode} context_length={args.context_length}")
+    print(
+        f"mode={args.mode} context_length={args.context_length} "
+        f"mask_strategy={args.mask_strategy} reconstruction={not args.disable_reconstruction}"
+    )
 
     history: list[dict[str, Any]] = []
     for epoch in range(args.epochs):
-        train_metrics = run_epoch(args.mode, model, train_loader, device, optimizer)
-        val_metrics = run_epoch(args.mode, model, val_loader, device)
+        train_metrics = run_epoch(
+            args.mode,
+            model,
+            train_loader,
+            device,
+            optimizer,
+            scaler=scaler,
+            use_amp=args.amp,
+            compute_auxiliary=not args.disable_reconstruction,
+        )
+        val_metrics = run_epoch(
+            args.mode,
+            model,
+            val_loader,
+            device,
+            use_amp=args.amp,
+            compute_auxiliary=not args.disable_reconstruction,
+        )
         metrics = {
             "epoch": epoch,
             "train": train_metrics,

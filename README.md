@@ -174,6 +174,18 @@ python scripts/train_amsterg_models.py \
 
 Offline Atari-HEAD training does not need an emulator, but game-score evaluation does. The original amsterg code uses legacy Gym ids such as `Breakout-v0`; this workspace keeps that code intact and uses the current Gymnasium/ALE id for new evaluation code:
 
+Set up the Python environment first:
+
+```bash
+bash scripts/setup_environment.sh
+```
+
+On a CUDA machine such as an RTX 3090, the default setup installs PyTorch from the CUDA 12.1 wheel index. If PyTorch is already installed, skip that part:
+
+```bash
+INSTALL_TORCH=0 bash scripts/setup_environment.sh
+```
+
 ```bash
 python scripts/smoke_gymnasium_atari.py \
   --env-id ALE/Breakout-v5 \
@@ -299,6 +311,60 @@ python scripts/evaluate_gymnasium_atari_policy.py \
   --context-length 4 \
   --target-return 20 \
   --output-json artifacts/gymnasium_eval/active_dt_breakout_sample_smoke.json
+```
+
+To run the full active-DT Breakout pipeline from data download through evaluation:
+
+```bash
+PROFILE=smoke bash scripts/run_breakout_active_dt_experiment.sh
+PROFILE=pilot bash scripts/run_breakout_active_dt_experiment.sh
+PROFILE=real bash scripts/run_breakout_active_dt_experiment.sh
+PROFILE=rtx3090 bash scripts/run_breakout_active_dt_experiment.sh
+```
+
+`PROFILE=smoke` verifies the path on a tiny sample. `PROFILE=pilot` uses several trials and a default-width model. `PROFILE=real` processes all selected Breakout data, trains with context length 30, and evaluates 30 episodes with the paper-style 108K frame cutoff. `PROFILE=rtx3090` uses a wider 256-dim model, deeper encoder/DT, CUDA AMP, and 8-head attention for a 24GB GPU.
+
+For a 24GB RTX 3090, start with the default `rtx3090` profile. If VRAM is still underused, increase batch size:
+
+```bash
+PROFILE=rtx3090 BATCH_SIZE=96 bash scripts/run_breakout_active_dt_experiment.sh
+PROFILE=rtx3090 BATCH_SIZE=128 bash scripts/run_breakout_active_dt_experiment.sh
+```
+
+If it OOMs, reduce batch size first:
+
+```bash
+PROFILE=rtx3090 BATCH_SIZE=32 bash scripts/run_breakout_active_dt_experiment.sh
+```
+
+For full-data runs, the HDF5 preprocessing output can be much larger than the original zip because frame stacks and gaze tensors are materialized. The run script does not create the duplicated `combined` HDF5 group by default; set `COMBINED=1` only if another baseline explicitly needs it.
+
+For paper-facing comparisons, run matched-width ablations rather than only one large model:
+
+```bash
+# Quick check on a rented 3090.
+SUITE_PROFILE=pilot bash scripts/run_rtx3090_ablation_suite.sh
+
+# Full Breakout ablation suite.
+SUITE_PROFILE=full bash scripts/run_rtx3090_ablation_suite.sh
+```
+
+The suite prepares the data once, then runs:
+
+```text
+active_gaze_d256
+random_mask_d256
+active_gaze_no_rec_d256
+active_gaze_d128
+```
+
+The first three use the same 256-dim width, so the main comparison isolates the masking/reconstruction choices. The 128-dim run is a size ablation to check whether gains are only from model capacity.
+
+For more aggressive 3090 use:
+
+```bash
+SUITE_PROFILE=full BATCH_SIZE=96 bash scripts/run_rtx3090_ablation_suite.sh
+SUITE_PROFILE=full BATCH_SIZE=128 bash scripts/run_rtx3090_ablation_suite.sh
 ```
 
 ## First Real Experiment

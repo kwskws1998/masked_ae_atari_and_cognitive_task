@@ -33,6 +33,7 @@ class ActiveGazeDecisionTransformerConfig:
     max_timestep: int = 4096
     dropout: float = 0.1
     mask_ratio: float = 0.75
+    mask_strategy: str = "learned"
     reconstruction_loss_weight: float = 1.0
     gaze_loss_weight: float = 0.1
 
@@ -137,6 +138,8 @@ class ActiveGazeMAEVisualEncoder(nn.Module):
             raise ValueError("decoder_dim must be divisible by decoder_heads")
         if not 0.0 <= cfg.mask_ratio < 1.0:
             raise ValueError("mask_ratio must be in [0, 1)")
+        if cfg.mask_strategy not in {"learned", "random"}:
+            raise ValueError("mask_strategy must be 'learned' or 'random'")
 
         self.cfg = cfg
         self.grid_height = cfg.image_height // cfg.patch_size
@@ -243,6 +246,11 @@ class ActiveGazeMAEVisualEncoder(nn.Module):
         indices = torch.topk(mask_probs, k=self.visible_count, dim=1).indices
         return torch.sort(indices, dim=1).values
 
+    def _random_visible_indices(self, batch_size: int, device: torch.device) -> torch.Tensor:
+        scores = torch.rand(batch_size, self.num_patches, device=device)
+        indices = torch.topk(scores, k=self.visible_count, dim=1).indices
+        return torch.sort(indices, dim=1).values
+
     def forward(
         self,
         frames: torch.Tensor,
@@ -262,9 +270,18 @@ class ActiveGazeMAEVisualEncoder(nn.Module):
         batch_size = frames.shape[0]
         patch_tokens = self._patch_tokens(frames)
         patch_tokens = patch_tokens + self.encoder_pos_embed
-        mask_logits = self.mask_policy(patch_tokens).squeeze(-1)
-        mask_probs = F.softmax(mask_logits, dim=1)
-        visible_indices = self._select_visible_indices(mask_probs)
+        if self.cfg.mask_strategy == "random":
+            mask_probs = torch.full(
+                (batch_size, self.num_patches),
+                1.0 / self.num_patches,
+                dtype=patch_tokens.dtype,
+                device=patch_tokens.device,
+            )
+            visible_indices = self._random_visible_indices(batch_size, patch_tokens.device)
+        else:
+            mask_logits = self.mask_policy(patch_tokens).squeeze(-1)
+            mask_probs = F.softmax(mask_logits, dim=1)
+            visible_indices = self._select_visible_indices(mask_probs)
         gather_index = visible_indices.unsqueeze(-1).expand(-1, -1, self.cfg.embed_dim)
         visible_tokens = torch.gather(patch_tokens, dim=1, index=gather_index)
         encoded_visible = self.encoder(visible_tokens)
@@ -302,11 +319,12 @@ class ActiveGazeMAEVisualEncoder(nn.Module):
         gaze_loss = None
         if gaze_heatmaps is not None:
             gaze_patch_target = self.gaze_to_patch_distribution(gaze_heatmaps)
-            gaze_loss = torch.sum(
-                gaze_patch_target
-                * (torch.log(gaze_patch_target.clamp_min(1e-8)) - torch.log(mask_probs.clamp_min(1e-8))),
-                dim=1,
-            ).mean()
+            if self.cfg.mask_strategy == "learned":
+                gaze_loss = torch.sum(
+                    gaze_patch_target
+                    * (torch.log(gaze_patch_target.clamp_min(1e-8)) - torch.log(mask_probs.clamp_min(1e-8))),
+                    dim=1,
+                ).mean()
 
         return ActiveGazeVisualEncoderOutput(
             state_embedding=state_embedding,

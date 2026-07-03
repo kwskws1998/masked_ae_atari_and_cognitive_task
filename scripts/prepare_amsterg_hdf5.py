@@ -218,13 +218,15 @@ def main() -> None:
     parser.add_argument("--ahead-root", type=Path, default=DEFAULT_AHEAD_ROOT)
     parser.add_argument("--trials", nargs="*", help="Trial ids to process. Defaults to sorted trials.")
     parser.add_argument("--max-trials", type=int, default=1)
-    parser.add_argument("--max-frames", type=int, default=256)
+    parser.add_argument("--max-frames", type=int, default=256, help="Use 0 or a negative value for all frames.")
     parser.add_argument("--stack", type=int, default=4)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--overwrite-gaze", action="store_true")
     parser.add_argument("--combined", action="store_true")
     parser.add_argument("--no-compression", action="store_true")
     args = parser.parse_args()
+    if args.max_frames is not None and args.max_frames <= 0:
+        args.max_frames = None
 
     extract_game_zip(args.game, args.source_dir, args.ahead_root)
     configure_ahead(args.ahead_root)
