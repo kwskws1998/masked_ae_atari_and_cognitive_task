@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import random
@@ -30,16 +31,178 @@ DEFAULT_HDF5 = ROOT / "external" / "amsterg_ahead" / "data" / "processed" / "bre
 DEFAULT_OUTPUT_DIR = ROOT / "artifacts" / "active_gaze_dt" / "smoke"
 
 
-def split_indices(length: int, train_fraction: float, seed: int) -> tuple[list[int], list[int]]:
-    """Create deterministic sample-level train/validation indices."""
+@dataclass(frozen=True)
+class DatasetSplit:
+    train: list[int]
+    val: list[int]
+    test: list[int]
+    metadata: dict[str, Any]
+
+
+def _split_counts(length: int, train_fraction: float, val_fraction: float) -> tuple[int, int, int]:
+    if length < 2:
+        raise ValueError("dataset needs at least two split units")
+    if train_fraction <= 0.0 or val_fraction < 0.0:
+        raise ValueError("train_fraction must be positive and val_fraction must be non-negative")
+    test_fraction = 1.0 - train_fraction - val_fraction
+    if test_fraction < -1e-8:
+        raise ValueError("train_fraction + val_fraction must be <= 1.0")
+
+    fractions = [train_fraction, val_fraction, max(test_fraction, 0.0)]
+    raw = [fraction * length for fraction in fractions]
+    counts = [int(np.floor(value)) for value in raw]
+    remainder = length - sum(counts)
+    order = sorted(range(3), key=lambda index: raw[index] - counts[index], reverse=True)
+    for index in order[:remainder]:
+        counts[index] += 1
+
+    if length >= 3:
+        for target in (1, 2):
+            if fractions[target] > 0.0 and counts[target] == 0:
+                donor = max((idx for idx in range(3) if idx != target), key=lambda idx: counts[idx])
+                if counts[donor] <= 1:
+                    continue
+                counts[donor] -= 1
+                counts[target] += 1
+    if counts[0] == 0:
+        donor = max(range(1, 3), key=lambda idx: counts[idx])
+        if counts[donor] <= 1:
+            raise ValueError("could not allocate a non-empty train split")
+        counts[donor] -= 1
+        counts[0] = 1
+    return counts[0], counts[1], counts[2]
+
+
+def split_sample_indices(
+    length: int,
+    train_fraction: float,
+    val_fraction: float,
+    seed: int,
+) -> DatasetSplit:
+    """Create deterministic sample-level train/validation/test indices."""
 
     if length < 2:
-        raise ValueError("dataset needs at least two samples for train/validation split")
+        raise ValueError("dataset needs at least two samples for train/validation/test split")
     indices = list(range(length))
     random.Random(seed).shuffle(indices)
-    split = int(round(length * train_fraction))
-    split = min(max(split, 1), length - 1)
-    return indices[:split], indices[split:]
+    train_count, val_count, test_count = _split_counts(length, train_fraction, val_fraction)
+    train_end = train_count
+    val_end = train_end + val_count
+    return DatasetSplit(
+        train=indices[:train_end],
+        val=indices[train_end:val_end],
+        test=indices[val_end : val_end + test_count],
+        metadata={
+            "split_strategy": "sample",
+            "leakage_warning": "sample-level random split can overlap adjacent trajectory windows",
+        },
+    )
+
+
+def _indices_for_groups(dataset: AtariHeadHDF5TrajectoryDataset, groups: set[str]) -> list[int]:
+    return [index for index, (group_name, _) in enumerate(dataset.samples) if group_name in groups]
+
+
+def split_trial_indices(
+    dataset: AtariHeadHDF5TrajectoryDataset,
+    train_fraction: float,
+    val_fraction: float,
+    seed: int,
+) -> DatasetSplit:
+    """Split whole Atari-HEAD trials before shuffling windows."""
+
+    groups = list(dataset.groups)
+    if len(groups) < 3:
+        raise ValueError("trial split needs at least three trial groups; use --split-strategy block for small smoke data")
+    random.Random(seed).shuffle(groups)
+    train_count, val_count, test_count = _split_counts(len(groups), train_fraction, val_fraction)
+    train_groups = set(groups[:train_count])
+    val_groups = set(groups[train_count : train_count + val_count])
+    test_groups = set(groups[train_count + val_count : train_count + val_count + test_count])
+    return DatasetSplit(
+        train=_indices_for_groups(dataset, train_groups),
+        val=_indices_for_groups(dataset, val_groups),
+        test=_indices_for_groups(dataset, test_groups),
+        metadata={
+            "split_strategy": "trial",
+            "train_groups": sorted(train_groups),
+            "val_groups": sorted(val_groups),
+            "test_groups": sorted(test_groups),
+        },
+    )
+
+
+def split_block_indices(
+    dataset: AtariHeadHDF5TrajectoryDataset,
+    train_fraction: float,
+    val_fraction: float,
+) -> DatasetSplit:
+    """Split contiguous windows inside each trial with a purge gap at boundaries."""
+
+    train: list[int] = []
+    val: list[int] = []
+    test: list[int] = []
+    purge_gap = max(dataset.context_length - 1, 0)
+    by_group: dict[str, list[tuple[int, int]]] = {}
+    for index, (group_name, start) in enumerate(dataset.samples):
+        by_group.setdefault(group_name, []).append((start, index))
+
+    block_metadata: dict[str, Any] = {}
+    for group_name, starts_and_indices in by_group.items():
+        starts_and_indices.sort()
+        length = len(starts_and_indices)
+        available_length = length - (2 * purge_gap)
+        if available_length < 3:
+            raise ValueError(
+                f"group {group_name!r} has only {length} windows, not enough for block split "
+                f"with context_length={dataset.context_length}"
+            )
+        train_count, val_count, test_count = _split_counts(available_length, train_fraction, val_fraction)
+        train_end = train_count
+        val_start = min(length, train_end + purge_gap)
+        val_end = min(length, val_start + val_count)
+        test_start = min(length, val_end + purge_gap)
+        test_end = min(length, test_start + test_count)
+
+        train.extend(index for _, index in starts_and_indices[:train_end])
+        val.extend(index for _, index in starts_and_indices[val_start:val_end])
+        test.extend(index for _, index in starts_and_indices[test_start:test_end])
+        block_metadata[group_name] = {
+            "windows": length,
+            "train_windows": train_end,
+            "val_windows": max(val_end - val_start, 0),
+            "test_windows": max(test_end - test_start, 0),
+            "purge_gap_windows": purge_gap,
+        }
+
+    return DatasetSplit(
+        train=train,
+        val=val,
+        test=test,
+        metadata={
+            "split_strategy": "block",
+            "purge_gap_windows": purge_gap,
+            "groups": block_metadata,
+        },
+    )
+
+
+def split_dataset_indices(
+    dataset: AtariHeadHDF5TrajectoryDataset,
+    split_strategy: str,
+    train_fraction: float,
+    val_fraction: float,
+    seed: int,
+) -> DatasetSplit:
+    """Create train/validation/test indices using the requested split strategy."""
+
+    if split_strategy == "sample":
+        return split_sample_indices(len(dataset), train_fraction, val_fraction, seed)
+    if split_strategy == "trial":
+        return split_trial_indices(dataset, train_fraction, val_fraction, seed)
+    if split_strategy == "block":
+        return split_block_indices(dataset, train_fraction, val_fraction)
+    raise ValueError(f"unsupported split_strategy: {split_strategy}")
 
 
 def make_loader(
@@ -164,7 +327,7 @@ def run_epoch(
     }
     correct = 0
     total = 0
-    sample_count = 0
+    token_count = 0
     with torch.set_grad_enabled(is_train):
         for batch_idx, batch in enumerate(loader, start=1):
             batch = move_batch(batch, device)
@@ -186,42 +349,45 @@ def run_epoch(
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                     optimizer.step()
 
-            batch_items = int(batch["actions"].numel())
-            totals["loss"] += float(output.loss.detach().cpu()) * batch_items
+            action_tokens = int(batch["actions"].numel())
+            totals["loss"] += float(output.loss.detach().cpu()) * action_tokens
             if output.action_loss is not None:
-                totals["action_loss"] += float(output.action_loss.detach().cpu()) * batch_items
+                totals["action_loss"] += float(output.action_loss.detach().cpu()) * action_tokens
             if output.reconstruction_loss is not None:
-                totals["reconstruction_loss"] += float(output.reconstruction_loss.detach().cpu()) * batch_items
+                totals["reconstruction_loss"] += float(output.reconstruction_loss.detach().cpu()) * action_tokens
             if output.gaze_loss is not None:
-                totals["gaze_loss"] += float(output.gaze_loss.detach().cpu()) * batch_items
+                totals["gaze_loss"] += float(output.gaze_loss.detach().cpu()) * action_tokens
             batch_correct, batch_total = batch_accuracy(mode, output, batch)
             correct += batch_correct
             total += batch_total
-            sample_count += batch_items
+            token_count += action_tokens
             is_last_batch = batch_idx == len(loader)
             should_log = log_interval > 0 and (batch_idx == 1 or batch_idx % log_interval == 0 or is_last_batch)
             if should_log:
-                running_loss = totals["loss"] / max(sample_count, 1)
-                running_action_loss = totals["action_loss"] / max(sample_count, 1)
-                running_reconstruction_loss = totals["reconstruction_loss"] / max(sample_count, 1)
-                running_gaze_loss = totals["gaze_loss"] / max(sample_count, 1)
-                running_acc = correct / max(total, 1)
+                running_loss = totals["loss"] / max(token_count, 1)
+                running_action_loss = totals["action_loss"] / max(token_count, 1)
+                running_reconstruction_loss = totals["reconstruction_loss"] / max(token_count, 1)
+                running_gaze_loss = totals["gaze_loss"] / max(token_count, 1)
+                running_action_acc = correct / max(total, 1)
                 print(
                     f"{phase} epoch={epoch} batch={batch_idx}/{len(loader)} "
-                    f"samples={sample_count} loss={running_loss:.6f} "
+                    f"action_tokens={token_count} loss={running_loss:.6f} "
                     f"action_loss={running_action_loss:.6f} "
                     f"rec_loss={running_reconstruction_loss:.6f} "
-                    f"gaze_loss={running_gaze_loss:.6f} acc={running_acc:.4f}",
+                    f"gaze_loss={running_gaze_loss:.6f} action_acc={running_action_acc:.4f}",
                     flush=True,
                 )
 
-    denom = max(sample_count, 1)
+    denom = max(token_count, 1)
+    action_acc = correct / max(total, 1)
     return {
         "loss": totals["loss"] / denom,
         "action_loss": totals["action_loss"] / denom,
         "reconstruction_loss": totals["reconstruction_loss"] / denom,
         "gaze_loss": totals["gaze_loss"] / denom,
-        "acc": correct / max(total, 1),
+        "action_acc": action_acc,
+        "acc": action_acc,
+        "action_tokens": token_count,
     }
 
 
@@ -259,6 +425,8 @@ def main() -> None:
     parser.add_argument("--context-length", type=int, default=8)
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--train-fraction", type=float, default=0.8)
+    parser.add_argument("--val-fraction", type=float, default=0.1)
+    parser.add_argument("--split-strategy", choices=["sample", "trial", "block"], default="block")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--amp", action="store_true", help="Use CUDA automatic mixed precision.")
@@ -299,10 +467,20 @@ def main() -> None:
         max_samples=args.max_samples,
         require_rewards=args.require_rewards,
     )
-    train_indices, val_indices = split_indices(len(dataset), args.train_fraction, args.seed)
+    split = split_dataset_indices(
+        dataset,
+        args.split_strategy,
+        args.train_fraction,
+        args.val_fraction,
+        args.seed,
+    )
+    if not split.train or not split.val or not split.test:
+        raise ValueError(
+            "train/val/test splits must all be non-empty; adjust fractions, max_samples, or split_strategy"
+        )
     train_loader = make_loader(
         dataset,
-        train_indices,
+        split.train,
         args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
@@ -310,7 +488,15 @@ def main() -> None:
     )
     val_loader = make_loader(
         dataset,
-        val_indices,
+        split.val,
+        args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=args.pin_memory,
+    )
+    test_loader = make_loader(
+        dataset,
+        split.test,
         args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
@@ -328,7 +514,11 @@ def main() -> None:
 
     print(f"hdf5={args.hdf5}")
     print(f"groups={dataset.groups}")
-    print(f"samples train={len(train_indices)} val={len(val_indices)}")
+    print(
+        f"split_strategy={args.split_strategy} train_windows={len(split.train)} "
+        f"val_windows={len(split.val)} test_windows={len(split.test)}"
+    )
+    print(f"split_metadata={json.dumps(split.metadata, sort_keys=True)}")
     print(
         f"mode={args.mode} context_length={args.context_length} "
         f"mask_strategy={args.mask_strategy} reconstruction={not args.disable_reconstruction}"
@@ -371,11 +561,30 @@ def main() -> None:
             f"train_action_loss={train_metrics['action_loss']:.6f} "
             f"train_rec_loss={train_metrics['reconstruction_loss']:.6f} "
             f"train_gaze_loss={train_metrics['gaze_loss']:.6f} "
-            f"train_acc={train_metrics['acc']:.4f} val_loss={val_metrics['loss']:.6f} "
+            f"train_action_acc={train_metrics['action_acc']:.4f} val_loss={val_metrics['loss']:.6f} "
             f"val_action_loss={val_metrics['action_loss']:.6f} "
             f"val_rec_loss={val_metrics['reconstruction_loss']:.6f} "
-            f"val_gaze_loss={val_metrics['gaze_loss']:.6f} val_acc={val_metrics['acc']:.4f}"
+            f"val_gaze_loss={val_metrics['gaze_loss']:.6f} val_action_acc={val_metrics['action_acc']:.4f}"
         )
+
+    test_metrics = run_epoch(
+        "test",
+        args.epochs,
+        args.mode,
+        model,
+        test_loader,
+        device,
+        use_amp=args.amp,
+        compute_auxiliary=not args.disable_reconstruction,
+        log_interval=args.log_interval,
+    )
+    print(
+        f"test_loss={test_metrics['loss']:.6f} "
+        f"test_action_loss={test_metrics['action_loss']:.6f} "
+        f"test_rec_loss={test_metrics['reconstruction_loss']:.6f} "
+        f"test_gaze_loss={test_metrics['gaze_loss']:.6f} "
+        f"test_action_acc={test_metrics['action_acc']:.4f}"
+    )
 
     checkpoint = args.output_dir / f"{args.mode}.pt"
     torch.save(checkpoint_payload(args, cfg, model, history), checkpoint)
@@ -386,10 +595,14 @@ def main() -> None:
                 "mode": args.mode,
                 "hdf5": str(args.hdf5),
                 "groups": dataset.groups,
-                "train_size": len(train_indices),
-                "val_size": len(val_indices),
+                "split_strategy": args.split_strategy,
+                "split_metadata": split.metadata,
+                "train_size": len(split.train),
+                "val_size": len(split.val),
+                "test_size": len(split.test),
                 "checkpoint": str(checkpoint),
                 "history": history,
+                "test": test_metrics,
             },
             indent=2,
             sort_keys=True,

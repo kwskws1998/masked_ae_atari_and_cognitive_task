@@ -40,6 +40,8 @@ case "${SUITE_PROFILE}" in
     EVAL_STEP_LOG_INTERVAL="${EVAL_STEP_LOG_INTERVAL:-${EVAL_LOG_INTERVAL:-0}}"
     EVAL_EPISODE_LOG_INTERVAL="${EVAL_EPISODE_LOG_INTERVAL:-100}"
     NO_COMPRESSION="${NO_COMPRESSION:-1}"
+    SPLIT_STRATEGY="${SPLIT_STRATEGY:-block}"
+    VAL_FRACTION="${VAL_FRACTION:-0.1}"
     ;;
   full)
     MAX_TRIALS="${MAX_TRIALS:-0}"
@@ -53,6 +55,8 @@ case "${SUITE_PROFILE}" in
     EVAL_STEP_LOG_INTERVAL="${EVAL_STEP_LOG_INTERVAL:-${EVAL_LOG_INTERVAL:-0}}"
     EVAL_EPISODE_LOG_INTERVAL="${EVAL_EPISODE_LOG_INTERVAL:-100}"
     NO_COMPRESSION="${NO_COMPRESSION:-0}"
+    SPLIT_STRATEGY="${SPLIT_STRATEGY:-trial}"
+    VAL_FRACTION="${VAL_FRACTION:-0.1}"
     ;;
   *)
     echo "Unsupported SUITE_PROFILE=${SUITE_PROFILE}. Use pilot or full."
@@ -124,6 +128,8 @@ run_condition() {
     --num-workers "${NUM_WORKERS}"
     --lr "${LR}"
     --context-length "${CONTEXT_LENGTH}"
+    --split-strategy "${SPLIT_STRATEGY}"
+    --val-fraction "${VAL_FRACTION}"
     --embed-dim "${embed_dim}"
     --encoder-layers "${encoder_layers}"
     --encoder-heads "${encoder_heads}"

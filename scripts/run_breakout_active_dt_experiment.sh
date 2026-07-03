@@ -56,6 +56,8 @@ case "${PROFILE}" in
     EVAL_EPISODE_LOG_INTERVAL="${EVAL_EPISODE_LOG_INTERVAL:-100}"
     NO_COMPRESSION="${NO_COMPRESSION:-1}"
     COMBINED="${COMBINED:-0}"
+    SPLIT_STRATEGY="${SPLIT_STRATEGY:-block}"
+    VAL_FRACTION="${VAL_FRACTION:-0.1}"
     ;;
   pilot)
     MAX_TRIALS="${MAX_TRIALS:-4}"
@@ -85,6 +87,8 @@ case "${PROFILE}" in
     EVAL_EPISODE_LOG_INTERVAL="${EVAL_EPISODE_LOG_INTERVAL:-100}"
     NO_COMPRESSION="${NO_COMPRESSION:-1}"
     COMBINED="${COMBINED:-0}"
+    SPLIT_STRATEGY="${SPLIT_STRATEGY:-block}"
+    VAL_FRACTION="${VAL_FRACTION:-0.1}"
     ;;
   real)
     MAX_TRIALS="${MAX_TRIALS:-0}"
@@ -114,6 +118,8 @@ case "${PROFILE}" in
     EVAL_EPISODE_LOG_INTERVAL="${EVAL_EPISODE_LOG_INTERVAL:-100}"
     NO_COMPRESSION="${NO_COMPRESSION:-0}"
     COMBINED="${COMBINED:-0}"
+    SPLIT_STRATEGY="${SPLIT_STRATEGY:-trial}"
+    VAL_FRACTION="${VAL_FRACTION:-0.1}"
     ;;
   rtx3090)
     MAX_TRIALS="${MAX_TRIALS:-0}"
@@ -144,6 +150,8 @@ case "${PROFILE}" in
     EVAL_EPISODE_LOG_INTERVAL="${EVAL_EPISODE_LOG_INTERVAL:-100}"
     NO_COMPRESSION="${NO_COMPRESSION:-0}"
     COMBINED="${COMBINED:-0}"
+    SPLIT_STRATEGY="${SPLIT_STRATEGY:-trial}"
+    VAL_FRACTION="${VAL_FRACTION:-0.1}"
     ;;
   *)
     echo "Unsupported PROFILE=${PROFILE}. Use smoke, pilot, real, or rtx3090."
@@ -186,6 +194,8 @@ TRAIN_ARGS=(
   --num-workers "${NUM_WORKERS}"
   --lr "${LR}"
   --context-length "${CONTEXT_LENGTH}"
+  --split-strategy "${SPLIT_STRATEGY}"
+  --val-fraction "${VAL_FRACTION}"
   --embed-dim "${EMBED_DIM}"
   --encoder-layers "${ENCODER_LAYERS}"
   --encoder-heads "${ENCODER_HEADS}"
@@ -210,7 +220,7 @@ fi
 if [ "${AMP}" = "1" ]; then
   TRAIN_ARGS+=(--amp)
 fi
-echo "=== train mode=${MODE} device=${DEVICE} amp=${AMP} batch_size=${BATCH_SIZE} context_length=${CONTEXT_LENGTH} ==="
+echo "=== train mode=${MODE} device=${DEVICE} amp=${AMP} batch_size=${BATCH_SIZE} context_length=${CONTEXT_LENGTH} split=${SPLIT_STRATEGY} ==="
 python -c "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('cuda_device', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
 if [ "${PRINT_NVIDIA_SMI}" = "1" ] && command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi

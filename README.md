@@ -273,6 +273,7 @@ python scripts/train_active_gaze_dt.py \
   --mode active_bc \
   --groups 198_RZ_3877709_Dec-03-16-56-11 \
   --max-samples 16 \
+  --split-strategy block \
   --context-length 4 \
   --epochs 1 \
   --batch-size 2 \
@@ -294,6 +295,7 @@ python scripts/train_active_gaze_dt.py \
   --mode active_dt \
   --groups 198_RZ_3877709_Dec-03-16-56-11 \
   --max-samples 16 \
+  --split-strategy block \
   --context-length 4 \
   --epochs 1 \
   --batch-size 2 \
@@ -334,7 +336,7 @@ PROFILE=real bash scripts/run_breakout_active_dt_experiment.sh
 PROFILE=rtx3090 bash scripts/run_breakout_active_dt_experiment.sh
 ```
 
-`PROFILE=smoke` verifies the path on a tiny sample. `PROFILE=pilot` uses several trials and a default-width model. `PROFILE=real` processes all selected Breakout data, trains with context length 30, and evaluates 30 episodes with the paper-style 108K frame cutoff. `PROFILE=rtx3090` uses a wider 256-dim model, deeper encoder/DT, CUDA AMP, and 8-head attention for a 24GB GPU.
+`PROFILE=smoke` verifies the path on a tiny sample. `PROFILE=pilot` uses several trials and a default-width model. `PROFILE=real` processes all selected Breakout data, trains with context length 30, and evaluates 30 episodes with the paper-style 108K frame cutoff. `PROFILE=rtx3090` uses a wider 256-dim model, deeper encoder/DT, CUDA AMP, and 8-head attention for a 24GB GPU. Smoke and pilot runs use contiguous `block` splits with a purge gap between train/validation/test windows. Real and RTX 3090 runs use held-out `trial` splits and report final `test_action_acc` separately from Gymnasium game score.
 
 For a 24GB RTX 3090, start with the default `rtx3090` profile. If VRAM is still underused, increase batch size:
 

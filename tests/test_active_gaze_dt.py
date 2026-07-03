@@ -18,6 +18,7 @@ from atari_gaze_cmae import (  # noqa: E402
     ActiveGazeMAEVisualEncoder,
     AtariHeadHDF5TrajectoryDataset,
 )
+from scripts.train_active_gaze_dt import split_dataset_indices  # noqa: E402
 
 
 def _small_config(context_length: int = 4) -> ActiveGazeDecisionTransformerConfig:
@@ -42,6 +43,21 @@ def _normalized_gaze(shape: tuple[int, ...]) -> np.ndarray:
     flat = gaze.reshape(shape[0], -1)
     flat /= flat.sum(axis=1, keepdims=True)
     return flat.reshape(shape)
+
+
+def _write_synthetic_hdf5(hdf5_path: Path, group_count: int = 5, length: int = 16) -> None:
+    with h5py.File(hdf5_path, "w") as handle:
+        for group_index in range(group_count):
+            group = handle.create_group(f"trial_{group_index}")
+            group.create_dataset("images", data=np.random.rand(length, 4, 84, 84).astype(np.float32))
+            actions = np.zeros((length, 4), dtype=np.int64)
+            actions[:, -1] = np.arange(length) % 18
+            group.create_dataset("actions", data=actions)
+            group.create_dataset("gazes", data=_normalized_gaze((length, 84, 84)))
+            rewards = np.zeros((length, 4), dtype=np.float32)
+            rewards[:, -1] = np.arange(length, dtype=np.float32)
+            group.create_dataset("rewards", data=rewards)
+            group.create_dataset("episode_ids", data=np.zeros((length, 4), dtype=np.int64))
 
 
 def test_active_visual_encoder_masks_to_visible_quarter() -> None:
@@ -200,6 +216,44 @@ def test_hdf5_trajectory_dataset_shapes_and_rtg() -> None:
         dataset.close()
 
 
+def test_trial_split_has_disjoint_trial_groups() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        hdf5_path = Path(tmp) / "synthetic.hdf5"
+        _write_synthetic_hdf5(hdf5_path, group_count=5, length=12)
+        dataset = AtariHeadHDF5TrajectoryDataset(hdf5_path, context_length=4)
+        split = split_dataset_indices(dataset, "trial", train_fraction=0.6, val_fraction=0.2, seed=7)
+
+        train_groups = {dataset.samples[index][0] for index in split.train}
+        val_groups = {dataset.samples[index][0] for index in split.val}
+        test_groups = {dataset.samples[index][0] for index in split.test}
+        assert train_groups
+        assert val_groups
+        assert test_groups
+        assert train_groups.isdisjoint(val_groups)
+        assert train_groups.isdisjoint(test_groups)
+        assert val_groups.isdisjoint(test_groups)
+        dataset.close()
+
+
+def test_block_split_purges_overlapping_windows() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        hdf5_path = Path(tmp) / "synthetic.hdf5"
+        _write_synthetic_hdf5(hdf5_path, group_count=1, length=24)
+        context_length = 4
+        dataset = AtariHeadHDF5TrajectoryDataset(hdf5_path, context_length=context_length)
+        split = split_dataset_indices(dataset, "block", train_fraction=0.6, val_fraction=0.2, seed=7)
+
+        split_indices = {"train": split.train, "val": split.val, "test": split.test}
+        for left_name, right_name in [("train", "val"), ("train", "test"), ("val", "test")]:
+            for left_index in split_indices[left_name]:
+                left_group, left_start = dataset.samples[left_index]
+                for right_index in split_indices[right_name]:
+                    right_group, right_start = dataset.samples[right_index]
+                    if left_group == right_group:
+                        assert abs(left_start - right_start) >= context_length
+        dataset.close()
+
+
 if __name__ == "__main__":
     test_active_visual_encoder_masks_to_visible_quarter()
     test_random_visual_encoder_masks_to_visible_quarter_without_gaze_loss()
@@ -207,3 +261,5 @@ if __name__ == "__main__":
     test_active_gaze_decision_transformer_loss_composition()
     test_active_visual_encoder_autocast_reconstruction_dtype()
     test_hdf5_trajectory_dataset_shapes_and_rtg()
+    test_trial_split_has_disjoint_trial_groups()
+    test_block_split_purges_overlapping_windows()
