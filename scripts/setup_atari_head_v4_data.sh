@@ -12,7 +12,7 @@ VENV_DIR="${VENV_DIR:-.venv}"
 HF_REPO="${HF_REPO:-skboy/atari-head-v4}"
 OUT_DIR="${ATARI_HEAD_V4_DIR:-data/atari_head_full/v4}"
 
-if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
+if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -z "${CONDA_PREFIX:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
   source "${VENV_DIR}/bin/activate"
 fi
 
@@ -23,8 +23,11 @@ else
 fi
 
 if ! command -v hf >/dev/null 2>&1; then
-  echo "hf CLI is not installed. Install it with:"
-  echo "curl -LsSf https://hf.co/cli/install.sh | bash -s"
+  python -m pip install "huggingface_hub[cli]"
+fi
+
+if ! command -v hf >/dev/null 2>&1; then
+  echo "hf CLI is not installed and could not be installed with pip." >&2
   exit 1
 fi
 

@@ -23,7 +23,7 @@ EVAL_START_ACTIONS="${EVAL_START_ACTIONS:-1}"
 SKIP_PREPARE="${SKIP_PREPARE:-0}"
 PRINT_NVIDIA_SMI="${PRINT_NVIDIA_SMI:-1}"
 
-if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
+if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -z "${CONDA_PREFIX:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
   source "${VENV_DIR}/bin/activate"
 fi
 

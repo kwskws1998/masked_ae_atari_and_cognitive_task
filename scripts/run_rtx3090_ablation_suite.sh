@@ -23,7 +23,7 @@ mkdir -p artifacts "${SUITE_ROOT}" artifacts/gymnasium_eval
 EVAL_POLICY="${EVAL_POLICY:-argmax}"
 EVAL_START_ACTIONS="${EVAL_START_ACTIONS:-1}"
 
-if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
+if [ "${AUTO_ACTIVATE_VENV}" != "0" ] && [ -z "${VIRTUAL_ENV:-}" ] && [ -z "${CONDA_PREFIX:-}" ] && [ -f "${VENV_DIR}/bin/activate" ]; then
   source "${VENV_DIR}/bin/activate"
 fi
 
