@@ -164,6 +164,7 @@ else
     --max-trials "${MAX_TRIALS}"
     --max-frames "${MAX_FRAMES}"
     --overwrite
+    --atomic-output
   )
   if [ "${COMBINED}" = "1" ]; then
     PREPARE_ARGS+=(--combined)
@@ -173,6 +174,8 @@ else
   fi
   python scripts/prepare_amsterg_hdf5.py "${PREPARE_ARGS[@]}"
 fi
+
+HDF5_PATH="${HDF5_PATH}" python -c "import h5py, os; path=os.environ['HDF5_PATH']; handle=h5py.File(path, 'r'); groups=[key for key in handle.keys() if key != 'combined']; print(f'hdf5_ok={path} groups={len(groups)}'); handle.close()"
 
 TRAIN_ARGS=(
   --mode "${MODE}"

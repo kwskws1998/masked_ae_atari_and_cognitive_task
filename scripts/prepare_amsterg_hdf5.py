@@ -218,6 +218,49 @@ def write_combined_group(hdf5_path: Path, groups: list[str], overwrite: bool, co
         print(f"wrote combined: n={combined['actions'].shape[0]}")
 
 
+def prepare_hdf5_output(
+    hdf5_path: Path,
+    game: str,
+    trials: list[TrialSpec],
+    *,
+    stack: int,
+    max_frames: int | None,
+    overwrite: bool,
+    compression: str | None,
+    combined: bool,
+    atomic_output: bool,
+) -> list[str]:
+    output_path = hdf5_path
+    temp_path: Path | None = None
+    if atomic_output:
+        hdf5_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = hdf5_path.with_name(f".{hdf5_path.stem}.{os.getpid()}.tmp{hdf5_path.suffix}")
+        if temp_path.exists():
+            temp_path.unlink()
+        output_path = temp_path
+        overwrite = True
+
+    try:
+        written = write_groups(
+            output_path,
+            game,
+            trials,
+            stack=stack,
+            max_frames=max_frames,
+            overwrite=overwrite,
+            compression=compression,
+        )
+        if combined:
+            write_combined_group(output_path, written, overwrite=overwrite, compression=compression)
+        if temp_path is not None:
+            temp_path.replace(hdf5_path)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
+
+    return written
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--game", default="breakout", choices=sorted(VALID_ACTIONS))
@@ -231,6 +274,11 @@ def main() -> None:
     parser.add_argument("--overwrite-gaze", action="store_true")
     parser.add_argument("--combined", action="store_true")
     parser.add_argument("--no-compression", action="store_true")
+    parser.add_argument(
+        "--atomic-output",
+        action="store_true",
+        help="Write a temporary HDF5 file first, then replace the final output after success.",
+    )
     args = parser.parse_args()
     if args.max_frames is not None and args.max_frames <= 0:
         args.max_frames = None
@@ -256,7 +304,7 @@ def main() -> None:
 
     hdf5_path = args.ahead_root / "data" / "processed" / f"{args.game}.hdf5"
     compression = None if args.no_compression else "gzip"
-    written = write_groups(
+    prepare_hdf5_output(
         hdf5_path,
         args.game,
         trials,
@@ -264,9 +312,9 @@ def main() -> None:
         max_frames=args.max_frames,
         overwrite=args.overwrite,
         compression=compression,
+        combined=args.combined,
+        atomic_output=args.atomic_output,
     )
-    if args.combined:
-        write_combined_group(hdf5_path, written, overwrite=args.overwrite, compression=compression)
     print(hdf5_path)
 
 
