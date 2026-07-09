@@ -118,7 +118,7 @@ def ensure_hf_cli(login: bool) -> None:
     hf = shutil.which("hf")
     if hf is None:
         raise RuntimeError(
-            "hf CLI is not installed. Install it with: curl -LsSf https://hf.co/cli/install.sh | bash -s"
+            "hf CLI is not installed. Install it with: python -m pip install 'huggingface_hub[cli]'"
         )
     if login:
         subprocess.run([hf, "auth", "login"], check=True)

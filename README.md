@@ -327,6 +327,13 @@ python scripts/evaluate_gymnasium_atari_policy.py \
   --output-json artifacts/gymnasium_eval/active_dt_breakout_sample_smoke.json
 ```
 
+On a fresh conda server, run the one-shot bootstrap first. It creates or reuses the `atari-gaze-dt` conda env, installs CUDA PyTorch and dependencies, installs Atari ROMs, downloads Breakout from the Hugging Face mirror, and prepares the Breakout HDF5 if it is missing:
+
+```bash
+bash scripts/bootstrap_conda_atari_gaze.sh
+conda activate atari-gaze-dt
+```
+
 To run the full active-DT Breakout pipeline from data download through evaluation:
 
 ```bash

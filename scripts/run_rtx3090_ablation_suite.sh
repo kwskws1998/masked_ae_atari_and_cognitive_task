@@ -80,6 +80,11 @@ if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi
 fi
 
+if [ "${SKIP_PREPARE}" = "1" ] && [ ! -f "${HDF5_PATH}" ]; then
+  echo "=== requested SKIP_PREPARE=1 but missing ${HDF5_PATH}; preparing HDF5 instead ==="
+  SKIP_PREPARE=0
+fi
+
 if [ "${SKIP_PREPARE}" != "1" ]; then
   HF_REPO="${HF_REPO}" bash scripts/setup_atari_head_v4_data.sh "${GAME}"
   PREPARE_ARGS=(

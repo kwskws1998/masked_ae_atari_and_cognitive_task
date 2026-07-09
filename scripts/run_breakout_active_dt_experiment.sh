@@ -163,6 +163,11 @@ AMP="${AMP:-0}"
 echo "=== setup data archive game=${GAME} ==="
 bash scripts/setup_atari_head_v4_data.sh "${GAME}"
 
+if [ "${SKIP_PREPARE}" = "1" ] && [ ! -f "${HDF5_PATH}" ]; then
+  echo "=== requested SKIP_PREPARE=1 but missing ${HDF5_PATH}; preparing HDF5 instead ==="
+  SKIP_PREPARE=0
+fi
+
 if [ "${SKIP_PREPARE}" = "1" ]; then
   echo "=== skip HDF5 prepare: ${HDF5_PATH} ==="
 else
